@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Garment Production Line Planner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        /* Basic styling */
+        input, select { padding: 2px 4px; font-size: 12px; border: 1px solid #ccc; border-radius: 4px; width: 100%; box-sizing: border-box; background-color: #f8f9fa; }
+        input:focus, select:focus { outline: 2px solid #3b82f6; background-color: white; }
+        input.flatpickr-input { padding: 2px 4px !important; font-size: 12px !important; border: 1px solid #ccc !important; border-radius: 4px !important; width: 100% !important; box-sizing: border-box !important; background-color: #f8f9fa !important; }
+        .calculated { background-color: #e9ecef; color: #495057; white-space: pre-wrap; cursor: help; }
+        td { padding: 4px; text-align: left; border-bottom: 1px solid #ddd; vertical-align: top; font-size: 12px; background-color: white; }
+        th { padding: 4px; text-align: left; border-bottom: 1px solid #ddd; background-color: #f2f2f2; position: sticky; top: 0; z-index: 10; white-space: nowrap; }
+        .table-container { max-height: 60vh; overflow: auto; position: relative; }
+
+        /* Header & Layout Styles */
+        .app-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+        .app-header .logo-title { display: flex; align-items: center; gap: 1rem; }
+        .app-header .logo { height: 40px; }
+        .app-header .main-actions { display: flex; gap: 0.75rem; }
+        .filter-container { display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem; background-color: #f8f9fa; padding: 1rem; border-radius: 8px; }
+        .filter-group { display: flex; flex-direction: column; } .filter-group label { font-size: 11px; font-weight: 600; color: #6c757d; margin-bottom: 4px; }
+        #reset-filters { align-self: flex-end; padding: 4px 12px; font-weight: bold; background-color: #6c757d; color: white; border-radius: 4px; }
+        .action-btn:disabled { background-color: #e9ecef; color: #adb5bd; cursor: not-allowed; }
+
+        /* --- MODIFIED: Column Width & Sticky Freeze Styles --- */
+        .col-delete { width: 36px; min-width: 36px; }
+        .col-style { width: 140px; min-width: 140px; } 
+        .col-qty { width: 80px; min-width: 80px; text-align: center; } 
+        .col-date { width: 90px; min-width: 90px; } 
+        .col-small-num { width: 60px; min-width: 60px; text-align: center; } 
+        .col-slots { width: 200px; min-width: 200px; white-space: pre-wrap; } 
+        .col-line { width: 90px; min-width: 90px; } 
+        .col-pos { width: 140px; min-width: 140px; } 
+        .col-alloc { width: 70px; }
+
+        .sticky-col { position: sticky; z-index: 5; }
+        #data-table-head th.sticky-header { z-index: 15; background-color: #f2f2f2; }
+        .sticky-col-1 { left: 0; }
+        .sticky-col-2 { left: 36px; } /* width of .col-delete */
+        .sticky-col-3 { left: 176px; } /* width of .col-delete + .col-style */
+        
+        /* Ensure sticky cells get the correct background color */
+        tr.bg-red-100 .sticky-col, tr.bg-red-100 .sticky-col input, tr.bg-red-100 .sticky-col select { background-color: #fecaca; }
+        tr.bg-green-100 .sticky-col, tr.bg-green-100 .sticky-col input, tr.bg-green-100 .sticky-col select { background-color: #d1fae5; }
+        tr.bg-yellow-100 .sticky-col, tr.bg-yellow-100 .sticky-col input, tr.bg-yellow-100 .sticky-col select { background-color: #fef9c3; }
+        tr.bg-blue-100 .sticky-col, tr.bg-blue-100 .sticky-col input, tr.bg-blue-100 .sticky-col select { background-color: #dbeafe; }
+        tbody tr .sticky-col { background-color: white; } /* Default for non-colored rows */
+        tbody tr .sticky-col input, tbody tr .sticky-col select { background-color: #f8f9fa; } /* Default input bg for non-colored rows */
+        
+        .clickable-slot { cursor: pointer; padding: 2px 4px; margin: 2px 0; border-radius: 4px; } .clickable-slot:hover { background-color: #dbeafe; font-weight: 500; }
+        .select-sundays-btn { font-size: 10px; padding: 0px 4px; margin-left: 4px; border: 1px solid #ccc; border-radius: 4px; background-color: #e9ecef; cursor: pointer; }
+
+        /* Dashboard & Metrics */
+        .dashboard { display: flex; justify-content: space-around; padding: 1rem; margin-bottom: 1rem; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #dee2e6; }
+        .metric { text-align: center; } .metric-value { font-size: 2rem; font-weight: 700; } .metric-label { font-size: 0.8rem; font-weight: 500; color: #6c757d; }
+        .metric-value.errors { color: #dc3545; } .metric-value.allocated { color: #28a745; } .metric-value.urgent { color: #ffc107; } .metric-value.ready { color: #17a2b8; }
+        th.sortable { cursor: pointer; } .sort-indicator { margin-left: 5px; color: #6c757d; }
+
+        /* Gantt Chart Styles */
+        .gantt-chart-container { position: relative; overflow-x: auto; max-height: 75vh; border: 1px solid #ddd; user-select: none; }
+        .gantt-grid { display: grid; position: relative; border-left: 1px solid #ddd; }
+        .gantt-header { position: sticky; top: 0; z-index: 20; background-color: #f2f2f2; display: flex; }
+        .gantt-row { display: flex; border-bottom: 1px solid #ddd; box-sizing: border-box; }
+        .gantt-line-label { position: sticky; left: 0; z-index: 10; width: 120px; min-width: 120px; padding: 8px; font-weight: 600; background-color: #f8f9fa; border-right: 1px solid #ddd; }
+        .gantt-timeline { display: grid; height: 40px; }
+        .gantt-month { text-align: center; border-right: 1px solid #e0e0e0; font-size: 12px; padding: 4px 0; }
+        .gantt-days { display: grid; border-top: 1px solid #ddd; }
+        .gantt-day { border-right: 1px solid #eee; font-size: 9px; color: #aaa; text-align: center; padding: 2px 0; }
+        .gantt-day.is-weekend { background-color: #f7f7f7; }
+        .gantt-row-bars { position: relative; height: 40px; flex-grow: 1; background-size: 30px 100%; }
+        .gantt-bar { position: absolute; z-index: 16; height: 28px; top: 6px; border-radius: 4px; color: white; font-size: 11px; padding: 4px 6px; overflow: hidden; border: 1px solid rgba(0,0,0,0.2); cursor: pointer; }
+        .gantt-today-marker { position: absolute; top: 0; bottom: 0; width: 2px; background-color: #0d6efd; z-index: 15; }
+        .gantt-bar-overlap { position: absolute; z-index: 17; height: 28px; top: 6px; border-radius: 4px; cursor: help; }
+        .gantt-nav-controls { display: flex; align-items: center; gap: 8px; padding: 8px; background-color: #f8f9fa; border-bottom: 1px solid #ddd;}
+        .gantt-nav-controls button { padding: 2px 8px; font-size: 12px; background-color: #0d6efd; color: white; border-radius: 4px; }
+        .zoom-btn { font-size: 14px; font-weight: bold; width: 24px; text-align: center; }
+        
+        /* Modal Styles */
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+        .modal-content { background: white; padding: 20px; border-radius: 8px; width: 90%; max-width: 400px; }
+        .modal-header { font-size: 1.25rem; font-weight: bold; margin-bottom: 1rem; }
+        .modal-body .form-group { margin-bottom: 1rem; }
+        .modal-footer { margin-top: 1.5rem; display: flex; justify-content: flex-end; gap: 0.75rem; }
+        .modal-footer button { padding: 0.5rem 1rem; border-radius: 0.375rem; font-weight: bold; }
+        .btn-primary { background-color: #4299e1; color: white; }
+        .btn-secondary { background-color: #e2e8f0; }
+
+    </style>
+</head>
+<body class="bg-gray-100 p-4 font-sans">
+
+    <div class="container mx-auto bg-white p-6 rounded-lg shadow-lg">
+        
+        <header class="app-header">
+            <div class="logo-title">
+                <!-- 
+                  TO USE YOUR OWN LOGO:
+                  1. Convert your PNG file to a Base64 string using an online tool (search for "png to base64").
+                  2. Copy the entire resulting string.
+                  3. Replace the contents of the `src` attribute below with your new string.
+                     It should start with `data:image/png;base64,` followed by the long text string.
+                -->
+                <img class="logo" src="logo.png" alt="Logo" />
+                <h1 id="app-title" class="text-2xl font-bold text-gray-800">Garment Production Line Planner</h1>
+            </div>
+            <div class="main-actions">
+                <button id="undo-btn" class="action-btn bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded">Undo</button>
+                <button id="redo-btn" class="action-btn bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded">Redo</button>
+                <button id="import-excel" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded">Import</button>
+                <input type="file" id="file-input" class="hidden" accept=".xlsx, .xls, .csv">
+                <button id="export-excel" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded">Export</button>
+                <button id="add-new-style" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded">+ Add Style</button>
+            </div>
+        </header>
+
+        <div class="border-b border-gray-200">
+            <nav class="-mb-px flex space-x-8" aria-label="Tabs">
+                <button id="tab-data" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-indigo-500 text-indigo-600">Data & Calculations</button>
+                <button id="tab-gantt" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">Gantt Chart</button>
+                <button id="tab-masters" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">Line Masters</button>
+            </nav>
+        </div>
+
+        <div id="content-data" class="py-4">
+            <div class="dashboard">
+                <div class="metric"><div id="metric-total-styles" class="metric-value">0</div><div class="metric-label">Total Styles</div></div><div class="metric"><div id="metric-errors" class="metric-value errors">0</div><div class="metric-label">Errors</div></div><div class="metric"><div id="metric-allocated" class="metric-value allocated">0</div><div class="metric-label">Allocated</div></div><div class="metric"><div id="metric-urgent" class="metric-value urgent">0</div><div class="metric-label">Unallocated (Urgent)</div></div><div class="metric"><div id="metric-ready" class="metric-value ready">0</div><div class="metric-label">Unallocated (Ready)</div></div>
+            </div>
+            <div class="filter-container">
+                <div class="filter-group"><label for="filter-style">Filter by Style #</label><input type="text" id="filter-style" placeholder="Enter Style..."></div><div class="filter-group"><label for="filter-line">Filter by Line</label><select id="filter-line"><option value="">All Lines</option></select></div><div class="filter-group"><label for="filter-status">Filter by Status</label><select id="filter-status"><option value="">All Statuses</option><option value="errors">Has Errors</option><option value="allocated">Allocated</option><option value="unallocated-urgent">Unallocated (Urgent)</option><option value="unallocated-ready">Unallocated (Ready)</option></select></div><button id="reset-filters">Reset</button>
+            </div>
+            <div class="table-container">
+                <table class="min-w-full divide-y divide-gray-200"><thead id="data-table-head" class="bg-gray-50"><tr><th class="col-delete sticky-header sticky-col-1"></th><th class="col-style sortable sticky-header sticky-col-2" data-sort-key="styleNumber">Style #</th><th class="col-qty sortable sticky-header sticky-col-3" data-sort-key="quantity">Qty</th><th class="col-date sortable" data-sort-key="fabricInhouseDate">Fab In</th><th class="col-date sortable" data-sort-key="garmentExFactoryDate">Ex-Fac</th><th class="col-date sortable" data-sort-key="productionFabricCutDate">Cut Date</th><th class="col-small-num sortable" data-sort-key="sam">SAM</th><th class="col-small-num">Ops</th><th class="col-small-num">Eff %</th><th class="col-small-num">Hrs</th><th class="col-small-num sortable" data-sort-key="outputPerDay">Out/Day</th><th class="col-small-num sortable" data-sort-key="requiredDays">Req Days</th><th class="col-small-num">Cut→Stch</th><th class="col-date sortable" data-sort-key="earliestStitchingStart">Early Stch</th><th class="col-small-num">Stch→ExFac</th><th class="col-date sortable" data-sort-key="latestStitchingEnd">Late Stch</th><th class="col-small-num">Max Days</th><th class="col-small-num">Sufficient?</th><th class="col-slots">Available Slots</th><th class="col-date sortable" data-sort-key="allocationStartDate">Alloc Start</th><th class="col-date sortable" data-sort-key="allocationEndDate">Alloc End</th><th class="col-line sortable" data-sort-key="allocatedLine">Line</th><th class="col-line">Seq</th><th class="col-pos">Position</th><th class="col-alloc">Allocated?</th><th class="col-date">Excl. Dates</th></tr></thead><tbody id="data-table-body" class="bg-white divide-y divide-gray-200"></tbody></table>
+            </div>
+        </div>
+
+        <div id="content-gantt" class="py-4 hidden">
+             <h2 class="text-xl font-semibold text-gray-700 mb-2">Production Timeline</h2>
+             <div class="gantt-nav-controls">
+                <label for="gantt-date-jump">Go to Date:</label><input type="text" id="gantt-date-jump" class="flatpickr-single"><button id="gantt-jump-btn">Go</button><div class="flex-grow"></div><label>Zoom:</label><button id="zoom-out-btn" class="zoom-btn action-btn bg-gray-500 hover:bg-gray-600">-</button><button id="zoom-in-btn" class="zoom-btn action-btn bg-gray-500 hover:bg-gray-600">+</button>
+             </div>
+             <div id="gantt-chart-container" class="gantt-chart-container"></div>
+        </div>
+
+        <div id="content-masters" class="py-4 hidden">
+             <div class="flex justify-between items-center mb-4"><h2 class="text-xl font-semibold text-gray-700">Production Lines</h2><button id="add-new-line" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded">+ Add Line</button></div>
+            <div class="table-container"><table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50"><tr><th></th><th>Line Name</th><th>Blocked Start Date</th><th>Blocked End Date</th><th>Status</th></tr></thead><tbody id="masters-table-body" class="bg-white divide-y divide-gray-200"></tbody></table></div>
+        </div>
+    </div>
+
+    <div id="move-style-modal" class="modal-overlay hidden">
+        <div class="modal-content"><div id="modal-header" class="modal-header">Move Style</div><div class="modal-body"><div class="form-group"><label for="modal-line-select">New Line</label><select id="modal-line-select"></select></div><div class="form-group"><label for="modal-date-input">New Start Date</label><input type="text" id="modal-date-input" class="flatpickr-single"></div></div><div class="modal-footer"><button id="modal-cancel-btn" class="btn-secondary">Cancel</button><button id="modal-update-btn" class="btn-primary">Update</button></div></div>
+    </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+
+    let lineMastersData = [];
+    let dataAndCalculationsData = [];
+    let history = [];
+    let historyIndex = -1;
+    let sortState = { key: 'styleNumber', direction: 'asc' };
+    let currentlyMovingStyleNumber = null;
+    let ganttDayWidth = 30;
+    const styleColorCache = {};
+
+    const defaultStyle = {
+        styleNumber: 'STYLE-001', quantity: 1500, fabricInhouseDate: '2025-08-01', garmentExFactoryDate: '2025-09-15',
+        productionFabricCutDate: '2025-08-05', sam: 25, numOperators: 20, lineEfficiency: 60, workingHours: 8,
+        daysCutToStitchStart: 2, daysStitchEndToExFactory: 5, allocationStartDate: '', allocatedLine: '',
+        markedIfAllocated: '', excludedSpecificDates: ''
+    };
+    const defaultLine = { lineName: 'Line 1' };
+
+    function saveState() { 
+        if (historyIndex < history.length - 1) { history = history.slice(0, historyIndex + 1); } 
+        history.push(JSON.parse(JSON.stringify({ data: dataAndCalculationsData, lines: lineMastersData }))); 
+        historyIndex++; 
+        updateUndoRedoButtons(); 
+    }
+    function loadState(state) { 
+        dataAndCalculationsData = JSON.parse(JSON.stringify(state.data)); 
+        lineMastersData = JSON.parse(JSON.stringify(state.lines)); 
+        processChangesAndRender(false); 
+        renderMastersTable(); updateFilterLineOptions(); saveData(); updateUndoRedoButtons(); 
+    }
+    function undo() { if (historyIndex > 0) { historyIndex--; loadState(history[historyIndex]); } }
+    function redo() { if (historyIndex < history.length - 1) { historyIndex++; loadState(history[historyIndex]); } }
+    function updateUndoRedoButtons() { document.getElementById('undo-btn').disabled = historyIndex <= 0; document.getElementById('redo-btn').disabled = historyIndex >= history.length - 1; }
+
+    function formatDate(date) { if (!date || isNaN(date.getTime())) return ''; const year = date.getFullYear(); const month = String(date.getMonth() + 1).padStart(2, '0'); const day = String(date.getDate()).padStart(2, '0'); return `${year}-${month}-${day}`; }
+    function formatDisplayDate(date) { if (!date || isNaN(date.getTime())) return ''; const d = date.getDate().toString().padStart(2, '0'); const m = date.toLocaleString('default', { month: 'short' }); const y = date.getFullYear().toString().slice(-2); return `${d}-${m}-${y}`; }
+    function parseDate(dateStr) { if (!dateStr) return null; return new Date(dateStr + 'T00:00:00'); }
+    const daysBetween = (d1, d2) => d1 && d2 ? Math.round(Math.abs(d1 - d2) / (1000 * 60 * 60 * 24)) : 0;
+    
+    // --- UTILITY FUNCTIONS ---
+    function calculateWorkdayEndDate(startDate, durationInDays, excludedDatesStr = '') { if (!startDate || isNaN(startDate.getTime()) || durationInDays === null || isNaN(durationInDays) || durationInDays <= 0) return startDate; let date = new Date(startDate.getTime()); const excludedDates = new Set((excludedDatesStr || '').split(',').map(d => d.trim()).filter(Boolean)); let guard = 0; while (excludedDates.has(formatDate(date)) && guard < 500) { date.setDate(date.getDate() + 1); guard++; } let daysToCount = durationInDays - 1; guard = 0; while (daysToCount > 0 && guard < 500) { date.setDate(date.getDate() + 1); if (!excludedDates.has(formatDate(date))) { daysToCount--; } guard++; } return date; }
+    
+    // FIXED: Added the missing function back
+    function calculateWorkdayStartDate(endDate, durationInDays, excludedDatesStr = '') { if (!endDate || isNaN(endDate.getTime()) || durationInDays === null || isNaN(durationInDays) || durationInDays <= 0) return endDate; let date = new Date(endDate.getTime()); const excludedDates = new Set((excludedDatesStr || '').split(',').map(d => d.trim()).filter(Boolean)); let guard = 0; while (excludedDates.has(formatDate(date)) && guard < 500) { date.setDate(date.getDate() - 1); guard++; } let daysToCount = durationInDays - 1; guard = 0; while (daysToCount > 0 && guard < 500) { date.setDate(date.getDate() - 1); if (!excludedDates.has(formatDate(date))) { daysToCount--; } guard++; } return date; }
+    
+    function getWorkDaysDifference(startDate, endDate, excludedDatesStr = '') { if (!startDate || !endDate || startDate > endDate) return 0; let count = 0; let current = new Date(startDate.getTime()); const excludedDates = new Set((excludedDatesStr || '').split(',').map(d => d.trim()).filter(Boolean)); while (current <= endDate) { if (!excludedDates.has(formatDate(current))) { count++; } current.setDate(current.getDate() + 1); } return count; }
+    function getAvailableSlots(currentStyle, allStyles) { if (currentStyle.isMaxDaysSufficient === 'No') return 'Insufficient required days'; if (currentStyle.markedIfAllocated === 'Allocated') { return `ALLOCATED\n${currentStyle.allocatedLine}: ${formatDisplayDate(parseDate(currentStyle.allocationStartDate))} TO ${formatDisplayDate(parseDate(currentStyle.allocationEndDate))}`; } const requiredDays = currentStyle.requiredDays; if (requiredDays <= 0) return 'Check Quantity/SAM'; const M = parseDate(currentStyle.earliestStitchingStart); const O = parseDate(currentStyle.latestStitchingEnd); if (!M || !O) return 'Set Dates'; const allBookings = allStyles.filter(s => s && s.styleNumber !== currentStyle.styleNumber && s.allocatedLine && s.allocationStartDate).map(s => ({ lineName: s.allocatedLine, start: parseDate(s.allocationStartDate), end: parseDate(s.allocationEndDate) })).sort((a, b) => a.start - b.start); let availableSlots = []; lineMastersData.forEach(line => { if (currentStyle.allocatedLine === line.lineName) return; const allocationsOnThisLine = allBookings.filter(b => b.lineName === line.lineName); const findSlotsInGap = (gapStart, gapEnd, placement) => { if (!gapStart || !gapEnd || gapStart > gapEnd) return; const effectiveStart = (gapStart > M) ? gapStart : M; const effectiveEnd = (gapEnd < O) ? gapEnd : O; if (effectiveStart > effectiveEnd) return; if (getWorkDaysDifference(effectiveStart, effectiveEnd, currentStyle.excludedSpecificDates) >= requiredDays) { let slotStartDate; if (placement === 'late') { const slotEndDate = effectiveEnd; slotStartDate = calculateWorkdayStartDate(slotEndDate, requiredDays, currentStyle.excludedSpecificDates); if (slotStartDate >= effectiveStart) availableSlots.push(`${line.lineName}: ${formatDisplayDate(slotStartDate)} TO ${formatDisplayDate(slotEndDate)}`); } else { slotStartDate = effectiveStart; const slotEndDate = calculateWorkdayEndDate(slotStartDate, requiredDays, currentStyle.excludedSpecificDates); if (slotEndDate <= effectiveEnd) availableSlots.push(`${line.lineName}: ${formatDisplayDate(slotStartDate)} TO ${formatDisplayDate(slotEndDate)}`); } } }; if (allocationsOnThisLine.length === 0) { findSlotsInGap(M, O, 'early'); return; } let searchStartDate = M; allocationsOnThisLine.forEach(job => { if (!job || !job.start || isNaN(job.start.getTime())) return; const gapEnd = new Date(job.start.getTime()); gapEnd.setDate(gapEnd.getDate() - 1); findSlotsInGap(searchStartDate, gapEnd, 'late'); const nextSearchStart = new Date(job.end.getTime()); nextSearchStart.setDate(nextSearchStart.getDate() + 1); if(nextSearchStart > searchStartDate) searchStartDate = nextSearchStart; }); findSlotsInGap(searchStartDate, O, 'early'); }); return availableSlots.length > 0 ? Array.from(new Set(availableSlots)).join('\n') : 'No available slots found'; }
+    function runCalculations() { dataAndCalculationsData.forEach((style) => { if (!style) return; const { quantity, sam, numOperators, lineEfficiency, workingHours, productionFabricCutDate, daysCutToStitchStart, garmentExFactoryDate, daysStitchEndToExFactory, allocationStartDate, excludedSpecificDates } = style; style.outputPerDay = sam > 0 ? Math.floor(((workingHours * 60) / sam) * numOperators * (lineEfficiency / 100)) : 0; style.requiredDays = style.outputPerDay > 0 ? Math.ceil(quantity / style.outputPerDay) : 0; const E = parseDate(productionFabricCutDate); if (E && !isNaN(E.getTime())) { const mDate = new Date(E.getTime()); mDate.setDate(mDate.getDate() + parseInt(daysCutToStitchStart || 0)); style.earliestStitchingStart = formatDate(mDate); } else { style.earliestStitchingStart = ''; } const D = parseDate(garmentExFactoryDate); if(D && !isNaN(D.getTime())) { const oDate = new Date(D.getTime()); oDate.setDate(oDate.getDate() - parseInt(daysStitchEndToExFactory || 0)); style.latestStitchingEnd = formatDate(oDate); } else { style.latestStitchingEnd = ''; } const mForP = parseDate(style.earliestStitchingStart), oForP = parseDate(style.latestStitchingEnd); style.maxStitchingDays = (mForP && oForP && oForP >= mForP) ? (daysBetween(mForP, oForP) + 1) : 0; style.isMaxDaysSufficient = style.requiredDays > 0 && style.requiredDays <= style.maxStitchingDays ? 'Yes' : 'No'; style.allocationEndDate = formatDate(calculateWorkdayEndDate(parseDate(allocationStartDate), style.requiredDays, excludedSpecificDates)); if(style.allocatedLine && style.allocationStartDate) { const allocationsOnLine = dataAndCalculationsData.filter(s => s && s.allocatedLine === style.allocatedLine).sort((a,b) => parseDate(a.allocationStartDate) - parseDate(b.allocationStartDate)); const sequenceIndex = allocationsOnLine.findIndex(s => s && s.styleNumber === style.styleNumber); style.resourceSequence = `${style.allocatedLine}-${sequenceIndex + 1}`; if (sequenceIndex === 0) { style.resourcePosition = "Start"; style.resourcePositionTooltip = "First job on this line."; } else if (sequenceIndex > 0 && allocationsOnLine[sequenceIndex - 1]) { const currentJobStart = parseDate(style.allocationStartDate); const previousJobEnd = parseDate(allocationsOnLine[sequenceIndex - 1].allocationEndDate); if (currentJobStart && previousJobEnd) { const daysDiff = daysBetween(previousJobEnd, currentJobStart); if (currentJobStart <= previousJobEnd) { style.resourcePosition = "Overlap"; style.resourcePositionTooltip = `ERROR: Overlaps with previous job ending on ${formatDisplayDate(previousJobEnd)}.`; } else if (daysDiff === 1) { style.resourcePosition = "Continuation"; style.resourcePositionTooltip = `Prev. End: ${formatDisplayDate(previousJobEnd)} | This Start: ${formatDisplayDate(currentJobStart)}`; } else { style.resourcePosition = `Gap of ${daysDiff - 1} day${daysDiff - 1 !== 1 ? 's' : ''}`; style.resourcePositionTooltip = `Prev. End: ${formatDisplayDate(previousJobEnd)} | Gap: ${daysDiff - 1} day(s) | This Start: ${formatDisplayDate(currentJobStart)}`; } } else { style.resourcePosition = "Continuation"; style.resourcePositionTooltip = ""; } } } else { style.resourceSequence = ''; style.resourcePosition = ''; style.resourcePositionTooltip = ""; } }); dataAndCalculationsData.forEach(style => { if (style) style.availableLinesSlots = getAvailableSlots(style, dataAndCalculationsData); }); }
+    
+    function processChangesAndRender(doSaveState = true) {
+        try {
+            runCalculations(); applySortAndFilterAndRender(); updateSummaryDashboard(); saveData(); 
+            if (doSaveState) { saveState(); }
+            renderGanttChart();
+        } catch (error) { console.error("Processing error:", error); }
+    }
+    
+    function applySortAndFilterAndRender() { let dataToSort = [...dataAndCalculationsData]; const styleFilter = document.getElementById('filter-style').value.toLowerCase(); const lineFilter = document.getElementById('filter-line').value; const statusFilter = document.getElementById('filter-status').value; dataToSort.sort((a, b) => { if (!a || !b) return 0; const valA = a[sortState.key]; const valB = b[sortState.key]; let comparison = 0; const isDate = sortState.key.toLowerCase().includes('date') || sortState.key.toLowerCase().includes('stch'); if (isDate) { const dateA = parseDate(valA) || 0; const dateB = parseDate(valB) || 0; if (dateA === 0 && dateB !== 0) return 1; if (dateA !== 0 && dateB === 0) return -1; comparison = dateA - dateB; } else if (typeof valA === 'number') { comparison = valA - valB; } else { comparison = String(valA || '').localeCompare(String(valB || ''), undefined, {numeric: true}); } return sortState.direction === 'asc' ? comparison : -comparison; }); let filteredData = dataToSort.filter(style => { if (!style) return false; if (styleFilter && !style.styleNumber.toLowerCase().includes(styleFilter)) return false; if (lineFilter && style.allocatedLine !== lineFilter) return false; const isError = style.isMaxDaysSufficient === 'No' || style.resourcePosition === 'Overlap'; const isAllocated = style.markedIfAllocated === 'Allocated'; const today = new Date(); today.setHours(0,0,0,0); const sevenDaysFromNow = new Date(today); sevenDaysFromNow.setDate(today.getDate() + 7); const latestStitchDate = parseDate(style.latestStitchingEnd); const isUrgent = !isAllocated && latestStitchDate && latestStitchDate <= sevenDaysFromNow; if (statusFilter) { switch(statusFilter) { case 'errors': return isError; case 'allocated': return isAllocated; case 'unallocated-urgent': return !isAllocated && !isError && isUrgent; case 'unallocated-ready': return !isAllocated && !isError && !isUrgent && style.isMaxDaysSufficient === 'Yes'; } } return true; }); renderDataTable(filteredData); }
+    function updateSummaryDashboard() { let total = 0, errors = 0, allocated = 0, urgent = 0, ready = 0; const today = new Date(); today.setHours(0,0,0,0); const sevenDaysFromNow = new Date(today); sevenDaysFromNow.setDate(today.getDate() + 7); dataAndCalculationsData.forEach(style => { if (!style || !style.styleNumber) return; total++; const isError = style.isMaxDaysSufficient === 'No' || style.resourcePosition === 'Overlap'; const isAllocated = style.markedIfAllocated === 'Allocated'; const latestStitchDate = parseDate(style.latestStitchingEnd); const isUrgent = !isAllocated && latestStitchDate && latestStitchDate <= sevenDaysFromNow; if (isError) { errors++; } else if (isAllocated) { allocated++; } else if (isUrgent) { urgent++; } else if (style.isMaxDaysSufficient === 'Yes') { ready++; } }); document.getElementById('metric-total-styles').textContent = total; document.getElementById('metric-errors').textContent = errors; document.getElementById('metric-allocated').textContent = allocated; document.getElementById('metric-urgent').textContent = urgent; document.getElementById('metric-ready').textContent = ready; }
+    
+    function renderDataTable(dataToRender) { 
+        document.querySelectorAll('#data-table-head th.sortable').forEach(th => { const key = th.dataset.sortKey; const indicator = th.querySelector('.sort-indicator'); if(indicator) indicator.remove(); if (key === sortState.key) { th.innerHTML += `<span class="sort-indicator">${sortState.direction === 'asc' ? '▲' : '▼'}</span>`; } }); 
+        const dataTableBody = document.getElementById('data-table-body'); dataTableBody.innerHTML = ''; 
+        const today = new Date(); today.setHours(0,0,0,0); 
+        const sevenDaysFromNow = new Date(today); sevenDaysFromNow.setDate(today.getDate() + 7); 
+        dataToRender.forEach((style) => { 
+            const originalIndex = dataAndCalculationsData.findIndex(s => s && s.styleNumber === style.styleNumber); 
+            if (!style || originalIndex === -1) return; 
+            const row = document.createElement('tr'); 
+            const isError = style.isMaxDaysSufficient === 'No' || style.resourcePosition === 'Overlap'; 
+            const isAllocated = style.markedIfAllocated === 'Allocated'; 
+            const latestStitchDate = parseDate(style.latestStitchingEnd); 
+            const isUrgent = !isAllocated && latestStitchDate && latestStitchDate <= sevenDaysFromNow; 
+            if (isError) { row.classList.add('bg-red-100'); } else if (isAllocated) { row.classList.add('bg-green-100'); } else if (isUrgent) { row.classList.add('bg-yellow-100'); } else if (style.isMaxDaysSufficient === 'Yes') { row.classList.add('bg-blue-100'); } 
+            const lineOptions = lineMastersData.map(l => `<option value="${l.lineName}" ${style.allocatedLine === l.lineName ? 'selected' : ''}>${l.lineName}</option>`).join(''); 
+            const availableSlotsCellContent = (() => { const slotsText = style.availableLinesSlots || ''; if (!slotsText.includes(':') || slotsText.includes('ALLOCATED')) { return slotsText; } return slotsText.split('\n').map(slotStr => { if (!slotStr.trim()) return ''; const parts = slotStr.match(/(.*?): (.*?) TO .*/); if (!parts) return `<div>${slotStr}</div>`; const lineName = parts[1].trim(); const displayDate = parts[2].trim(); const dateObj = new Date(displayDate); const startDate_YYYYMMDD = formatDate(dateObj); return `<div class="clickable-slot" data-line-name="${lineName}" data-start-date="${startDate_YYYYMMDD}">${slotStr}</div>`; }).join(''); })(); 
+            row.innerHTML = `<td class="text-center align-middle sticky-col sticky-col-1 col-delete"><button class="delete-row-btn text-red-500 hover:text-red-700 font-bold px-2 py-1" data-index="${originalIndex}" title="Delete Row">&ndash;</button></td><td class="sticky-col sticky-col-2 col-style"><input type="text" value="${style.styleNumber||''}" data-index="${originalIndex}" data-key="styleNumber"></td><td class="sticky-col sticky-col-3 col-qty"><input type="number" value="${style.quantity||''}" data-index="${originalIndex}" data-key="quantity"></td><td class="col-date"><input type="text" class="flatpickr-single" value="${style.fabricInhouseDate||''}" data-index="${originalIndex}" data-key="fabricInhouseDate"></td><td class="col-date"><input type="text" class="flatpickr-single" value="${style.garmentExFactoryDate||''}" data-index="${originalIndex}" data-key="garmentExFactoryDate"></td><td class="col-date"><input type="text" class="flatpickr-single" value="${style.productionFabricCutDate||''}" data-index="${originalIndex}" data-key="productionFabricCutDate"></td><td class="col-small-num"><input type="number" value="${style.sam||''}" data-index="${originalIndex}" data-key="sam" step="0.1"></td><td class="col-small-num"><input type="number" value="${style.numOperators||''}" data-index="${originalIndex}" data-key="numOperators"></td><td class="col-small-num"><input type="number" value="${style.lineEfficiency||''}" data-index="${originalIndex}" data-key="lineEfficiency"></td><td class="col-small-num"><input type="number" value="${style.workingHours||''}" data-index="${originalIndex}" data-key="workingHours"></td><td class="col-small-num calculated">${style.outputPerDay||0}</td><td class="col-small-num calculated">${style.requiredDays||0}</td><td class="col-small-num"><input type="number" value="${style.daysCutToStitchStart||''}" data-index="${originalIndex}" data-key="daysCutToStitchStart"></td><td class="col-date calculated">${formatDisplayDate(parseDate(style.earliestStitchingStart))||''}</td><td class="col-small-num"><input type="number" value="${style.daysStitchEndToExFactory||''}" data-index="${originalIndex}" data-key="daysStitchEndToExFactory"></td><td class="col-date calculated">${formatDisplayDate(parseDate(style.latestStitchingEnd))||''}</td><td class="col-small-num calculated">${style.maxStitchingDays||0}</td><td class="col-small-num calculated">${style.isMaxDaysSufficient||''}</td><td class="col-slots calculated">${availableSlotsCellContent}</td><td class="col-date"><input type="text" class="flatpickr-single" value="${style.allocationStartDate||''}" data-index="${originalIndex}" data-key="allocationStartDate"></td><td class="col-date calculated">${formatDisplayDate(parseDate(style.allocationEndDate))||''}</td><td class="col-line"><select data-index="${originalIndex}" data-key="allocatedLine"><option value="">--Select--</option>${lineOptions}</select></td><td class="col-line calculated">${style.resourceSequence||''}</td><td class="col-pos calculated" title="${style.resourcePositionTooltip || ''}">${style.resourcePosition||''}</td><td class="col-alloc"><select data-index="${originalIndex}" data-key="markedIfAllocated"><option value=""></option><option value="Allocated" ${style.markedIfAllocated==='Allocated'?'selected':''}>Allocated</option></select></td><td class="col-date"><div style="display: flex; align-items: center;"><input type="text" class="flatpickr-multiple" value="${style.excludedSpecificDates||''}" data-index="${originalIndex}" data-key="excludedSpecificDates" placeholder="Select.."><button class="select-sundays-btn" data-index="${originalIndex}" title="Select/Deselect all Sundays in range">[S]</button></div></td>`; 
+            dataTableBody.appendChild(row); 
+        }); 
+        const fpConfig = { altInput: true, altFormat: "d-M-y", dateFormat: "Y-m-d" }; 
+        flatpickr(".flatpickr-single", { ...fpConfig }); flatpickr(".flatpickr-multiple", { ...fpConfig, mode: "multiple", conjunction: ", " }); 
+    }
+    
+    function getColorForString(str) { if (styleColorCache[str]) return styleColorCache[str]; let hash = 0; for (let i = 0; i < str.length; i++) { hash = str.charCodeAt(i) + ((hash << 5) - hash); } let color = '#'; for (let i = 0; i < 3; i++) { let value = (hash >> (i * 8)) & 0xFF; value = (value % 150) + 50; color += ('00' + value.toString(16)).substr(-2); } styleColorCache[str] = color; return color; }
+
+    function renderGanttChart() {
+        const container = document.getElementById('gantt-chart-container'); container.innerHTML = ''; if (dataAndCalculationsData.length === 0) { container.innerHTML = '<p class="p-4 text-gray-500">No data to display.</p>'; return; }
+        let minDate = null, maxDate = null;
+        dataAndCalculationsData.forEach(s => { const earlyStch = parseDate(s.earliestStitchingStart); const lateStch = parseDate(s.latestStitchingEnd); if (earlyStch) { minDate = minDate ? new Date(Math.min(minDate, earlyStch)) : earlyStch; } if (lateStch) { maxDate = maxDate ? new Date(Math.max(maxDate, lateStch)) : lateStch; } });
+        if (!minDate || !maxDate) { const today = new Date(); minDate = new Date(today.getFullYear(), today.getMonth(), 1); maxDate = new Date(today.getFullYear(), today.getMonth() + 2, 0); } else { minDate.setDate(minDate.getDate() - 7); maxDate.setDate(maxDate.getDate() + 7); }
+        const totalDays = daysBetween(minDate, maxDate) + 1; const ganttGrid = document.createElement('div'); ganttGrid.className = 'gantt-grid'; const header = document.createElement('div'); header.className = 'gantt-header'; const lineLabelSpacer = document.createElement('div'); lineLabelSpacer.className = 'gantt-line-label'; header.appendChild(lineLabelSpacer); const timelineHeader = document.createElement('div'); timelineHeader.style.width = `${totalDays * ganttDayWidth}px`; const monthsDiv = document.createElement('div'); monthsDiv.className = 'gantt-timeline'; monthsDiv.style.gridTemplateColumns = `repeat(${totalDays}, ${ganttDayWidth}px)`; const daysDiv = document.createElement('div'); daysDiv.className = 'gantt-timeline gantt-days'; daysDiv.style.gridTemplateColumns = `repeat(${totalDays}, ${ganttDayWidth}px)`; let currentDate = new Date(minDate); let currentMonth = -1;
+        const dayInitials = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+        for (let i = 0; i < totalDays; i++) { if (currentDate.getMonth() !== currentMonth) { currentMonth = currentDate.getMonth(); const monthName = currentDate.toLocaleString('default', { month: 'short' }); const daysInMonth = new Date(currentDate.getFullYear(), currentMonth + 1, 0).getDate(); const remainingDaysInMonth = daysInMonth - currentDate.getDate() + 1; const daysInView = Math.min(remainingDaysInMonth, totalDays - i); const monthEl = document.createElement('div'); monthEl.className = 'gantt-month'; monthEl.textContent = `${monthName} ${currentDate.getFullYear()}`; monthEl.style.gridColumn = `span ${daysInView}`; monthsDiv.appendChild(monthEl); } const dayEl = document.createElement('div'); dayEl.className = 'gantt-day'; const dayOfWeek = currentDate.getDay(); if (dayOfWeek === 0 || dayOfWeek === 6) dayEl.classList.add('is-weekend'); dayEl.innerHTML = `${dayInitials[dayOfWeek]}<br><span class="font-medium text-xs text-gray-700">${currentDate.getDate()}</span>`; daysDiv.appendChild(dayEl); currentDate.setDate(currentDate.getDate() + 1); }
+        timelineHeader.appendChild(monthsDiv); timelineHeader.appendChild(daysDiv); header.appendChild(timelineHeader); ganttGrid.appendChild(header);
+        lineMastersData.forEach((line) => { const row = document.createElement('div'); row.className = 'gantt-row'; const lineLabel = document.createElement('div'); lineLabel.className = 'gantt-line-label'; lineLabel.textContent = line.lineName; row.appendChild(lineLabel); const rowBars = document.createElement('div'); rowBars.className = 'gantt-row-bars'; rowBars.style.width = `${totalDays * ganttDayWidth}px`; rowBars.style.backgroundImage = `linear-gradient(to right, #eee 1px, transparent 1px)`; rowBars.style.backgroundSize = `${ganttDayWidth}px 100%`;
+            const stylesOnThisLine = dataAndCalculationsData.filter(s => s.allocatedLine === line.lineName && s.allocationStartDate).sort((a, b) => parseDate(a.allocationStartDate) - parseDate(b.allocationStartDate));
+            stylesOnThisLine.forEach((style, index) => { const start = parseDate(style.allocationStartDate); const end = parseDate(style.allocationEndDate); if(!start || !end) return; const offsetDays = daysBetween(minDate, start); const barWidth = (daysBetween(start, end) * ganttDayWidth) + ganttDayWidth; const bar = document.createElement('div'); bar.className = 'gantt-bar flex items-center justify-center text-center'; bar.dataset.styleNumber = style.styleNumber; bar.style.backgroundColor = getColorForString(style.styleNumber); bar.style.left = `${offsetDays * ganttDayWidth}px`; bar.style.width = `${barWidth}px`; bar.textContent = style.styleNumber; bar.title = `Style: ${style.styleNumber}\nLine: ${line.lineName}\n${formatDisplayDate(start)} to ${formatDisplayDate(end)}`; rowBars.appendChild(bar);
+                if (index > 0) { const prevStyle = stylesOnThisLine[index-1]; const prevEnd = parseDate(prevStyle.allocationEndDate); if (start <= prevEnd) { const overlapEnd = new Date(Math.min(end.getTime(), prevEnd.getTime())); const overlapOffset = daysBetween(minDate, start); const overlapDuration = daysBetween(start, overlapEnd) + 1; if (overlapDuration > 0) { const overlapEl = document.createElement('div'); overlapEl.className = 'gantt-bar-overlap'; overlapEl.style.left = `${overlapOffset * ganttDayWidth}px`; overlapEl.style.width = `${overlapDuration * ganttDayWidth}px`; const color1 = getColorForString(prevStyle.styleNumber); const color2 = getColorForString(style.styleNumber); overlapEl.style.background = `repeating-linear-gradient(45deg, ${color1}, ${color1} 4px, ${color2} 4px, ${color2} 8px)`; overlapEl.title = `OVERLAP: ${prevStyle.styleNumber} and ${style.styleNumber}`; rowBars.appendChild(overlapEl); } } } });
+            row.appendChild(rowBars); ganttGrid.appendChild(row); });
+        const today = new Date(); today.setHours(0,0,0,0); if (today >= minDate && today <= maxDate) { const offsetDays = daysBetween(minDate, today); const marker = document.createElement('div'); marker.className = 'gantt-today-marker'; marker.style.left = `${120 + (offsetDays * ganttDayWidth) + (ganttDayWidth / 2)}px`; ganttGrid.appendChild(marker); } container.appendChild(ganttGrid);
+        ganttGrid.addEventListener('click', (e) => { const targetBar = e.target.closest('.gantt-bar'); if (!targetBar) return; const styleNumber = targetBar.dataset.styleNumber; const style = dataAndCalculationsData.find(s => s.styleNumber === styleNumber); if (style) openMoveModal(style); });
+        document.getElementById('gantt-jump-btn').addEventListener('click', () => { const dateStr = document.getElementById('gantt-date-jump').value; const targetDate = parseDate(dateStr); if(targetDate && minDate) { const offsetDays = daysBetween(minDate, targetDate); const scrollPos = (offsetDays * ganttDayWidth) - (container.clientWidth / 2) + 120; container.scrollTo({ left: scrollPos, behavior: 'smooth' }); } });
+    }
+
+    function openMoveModal(style) {
+        currentlyMovingStyleNumber = style.styleNumber;
+        const modal = document.getElementById('move-style-modal');
+        document.getElementById('modal-header').textContent = `Move Style: ${style.styleNumber}`;
+        const lineSelect = document.getElementById('modal-line-select');
+        lineSelect.innerHTML = lineMastersData.map(l => `<option value="${l.lineName}">${l.lineName}</option>`).join('');
+        lineSelect.value = style.allocatedLine;
+        const dateInput = document.getElementById('modal-date-input');
+        const fpInstance = flatpickr(dateInput, { altInput: true, altFormat: "d-M-y", dateFormat: "Y-m-d", minDate: style.earliestStitchingStart, maxDate: style.latestStitchingEnd });
+        fpInstance.setDate(style.allocationStartDate);
+        modal.classList.remove('hidden');
+    }
+    function closeMoveModal() { document.getElementById('move-style-modal').classList.add('hidden'); }
+
+    document.getElementById('modal-update-btn').addEventListener('click', () => {
+        if (!currentlyMovingStyleNumber) return;
+        const styleIndex = dataAndCalculationsData.findIndex(s => s.styleNumber === currentlyMovingStyleNumber);
+        if (styleIndex === -1) return;
+        const style = dataAndCalculationsData[styleIndex];
+        const newLineEdit = document.getElementById('modal-line-select');
+        const newDateEdit = document.getElementById('modal-date-input');
+        const newStartDate = parseDate(newDateEdit.value);
+        if (!newStartDate) { alert('Invalid start date selected.'); return; }
+        const newEndDate = calculateWorkdayEndDate(newStartDate, style.requiredDays, style.excludedSpecificDates);
+        if (newStartDate >= parseDate(style.earliestStitchingStart) && newEndDate <= parseDate(style.latestStitchingEnd)) {
+            style.allocatedLine = newLineEdit.value;
+            style.allocationStartDate = formatDate(newStartDate);
+            closeMoveModal();
+            processChangesAndRender();
+        } else { alert('Move is invalid. The new dates fall outside of the allowed production window.'); }
+    });
+
+    document.getElementById('modal-cancel-btn').addEventListener('click', closeMoveModal);
+    
+    function saveData() { try { localStorage.setItem('lineMastersData', JSON.stringify(lineMastersData)); localStorage.setItem('dataAndCalculationsData', JSON.stringify(dataAndCalculationsData)); } catch (e) { console.error("Error saving data:", e); } }
+    function loadData() { try { lineMastersData = JSON.parse(localStorage.getItem('lineMastersData')) || [{...defaultLine}]; dataAndCalculationsData = JSON.parse(localStorage.getItem('dataAndCalculationsData')) || [{...defaultStyle}]; } catch (e) { lineMastersData = [{...defaultLine}]; dataAndCalculationsData = [{...defaultStyle}]; } }
+    function renderMastersTable() { const body = document.getElementById('masters-table-body'); body.innerHTML = ''; lineMastersData.forEach((line, index) => { if (line) { const row = document.createElement('tr'); row.innerHTML = `<td class="text-center align-middle"><button class="delete-line-btn text-red-500 hover:text-red-700 font-bold px-2" data-index="${index}" title="Delete Line">&ndash;</button></td><td><input type="text" value="${line.lineName||''}" data-index="${index}" data-key="lineName"></td><td></td><td></td><td></td>`; body.appendChild(row); } }); }
+    function updateFilterLineOptions() { const currentVal = document.getElementById('filter-line').value; const lineOptions = lineMastersData.map(l => `<option value="${l.lineName}">${l.lineName}</option>`).join(''); document.getElementById('filter-line').innerHTML = `<option value="">All Lines</option>${lineOptions}`; document.getElementById('filter-line').value = currentVal; }
+
+    const tabData = document.getElementById('tab-data'), tabGantt = document.getElementById('tab-gantt'), tabMasters = document.getElementById('tab-masters'), contentData = document.getElementById('content-data'), contentGantt = document.getElementById('content-gantt'), contentMasters = document.getElementById('content-masters');
+    function setActiveTab(activeTab) { const tabs = { data: tabData, gantt: tabGantt, masters: tabMasters }; const contents = { data: contentData, gantt: contentGantt, masters: contentMasters }; Object.keys(tabs).forEach(key => { const is_active = key === activeTab; tabs[key].classList.toggle('border-indigo-500', is_active); tabs[key].classList.toggle('text-indigo-600', is_active); tabs[key].classList.toggle('border-transparent', !is_active); tabs[key].classList.toggle('text-gray-500', !is_active); contents[key].classList.toggle('hidden', !is_active); }); if(activeTab === 'gantt') flatpickr("#gantt-date-jump", { altInput: true, altFormat: "d-M-y", dateFormat: "Y-m-d" }); }
+    tabData.addEventListener('click', () => setActiveTab('data')); tabGantt.addEventListener('click', () => { setActiveTab('gantt'); renderGanttChart(); }); tabMasters.addEventListener('click', () => { setActiveTab('masters'); renderMastersTable(); });
+    
+    document.getElementById('undo-btn').addEventListener('click', undo); document.getElementById('redo-btn').addEventListener('click', redo);
+    document.getElementById('add-new-style').addEventListener('click', () => { dataAndCalculationsData.push({ ...defaultStyle, styleNumber: `STYLE-${String(Date.now()).slice(-4)}` }); processChangesAndRender(); });
+    document.getElementById('add-new-line').addEventListener('click', () => { lineMastersData.push({ ...defaultLine, lineName: `Line ${lineMastersData.length + 1}` }); updateFilterLineOptions(); renderMastersTable(); processChangesAndRender(); });
+    document.getElementById('data-table-body').addEventListener('change', (e) => { const { index, key } = e.target.dataset; if (index !== undefined && key) { dataAndCalculationsData[index][key] = e.target.value; processChangesAndRender(); } });
+    document.getElementById('data-table-body').addEventListener('click', (e) => { const target = e.target; if (target.classList.contains('delete-row-btn')) { const index = target.dataset.index; if (confirm(`Are you sure you want to delete Style "${dataAndCalculationsData[index].styleNumber}"?`)) { dataAndCalculationsData.splice(index, 1); processChangesAndRender(); } } const slotTarget = target.closest('.clickable-slot'); if (slotTarget) { const index = slotTarget.closest('tr').querySelector('.delete-row-btn').dataset.index; const { lineName, startDate } = slotTarget.dataset; if (index !== undefined && lineName && startDate) { dataAndCalculationsData[index].allocatedLine = lineName; dataAndCalculationsData[index].allocationStartDate = startDate; processChangesAndRender(); } } if (target.classList.contains('select-sundays-btn')) { const index = target.dataset.index; const style = dataAndCalculationsData[index]; const start = parseDate(style.earliestStitchingStart); const end = parseDate(style.latestStitchingEnd); if (!start || !end) { alert('Please set "Early Stch" and "Late Stch" dates first.'); return; } const sundaysInRange = []; let current = new Date(start.getTime()); while (current <= end) { if (current.getDay() === 0) { sundaysInRange.push(formatDate(current)); } current.setDate(current.getDate() + 1); } const sundaysString = sundaysInRange.join(', '); style.excludedSpecificDates = style.excludedSpecificDates === sundaysString ? '' : sundaysString; processChangesAndRender(); } });
+    document.getElementById('masters-table-body').addEventListener('change', (e) => { const { index, key } = e.target.dataset; if (index !== undefined && key) { const oldName = lineMastersData[index].lineName; lineMastersData[index][key] = e.target.value; dataAndCalculationsData.forEach(style => { if (style.allocatedLine === oldName) style.allocatedLine = e.target.value; }); updateFilterLineOptions(); processChangesAndRender(); } });
+    document.getElementById('masters-table-body').addEventListener('click', (e) => { if (e.target.classList.contains('delete-line-btn')) { const index = e.target.dataset.index; const lineNameToDelete = lineMastersData[index].lineName; if (confirm(`Are you sure you want to delete Line "${lineNameToDelete}"? All styles allocated to this line will be un-allocated.`)) { lineMastersData.splice(index, 1); dataAndCalculationsData.forEach(style => { if (style.allocatedLine === lineNameToDelete) { style.allocatedLine = ''; style.allocationStartDate = ''; style.markedIfAllocated = ''; } }); updateFilterLineOptions(); renderMastersTable(); processChangesAndRender(); } } });
+    const headerMapping = { styleNumber:['styleNumber','style #','style'],quantity:['quantity','qty'],fabricInhouseDate:['fabricInhouseDate','fabric in-house date','fabric inhouse'],garmentExFactoryDate:['garmentExFactoryDate','ex-factory date','exfactory'],productionFabricCutDate:['productionFabricCutDate','fabric cut date','cut date'],sam:['sam','standard allowed minutes'],numOperators:['numOperators','# operators','operators'],lineEfficiency:['lineEfficiency','line eff %','efficiency'],workingHours:['workingHours','working hours','hours'],daysCutToStitchStart:['daysCutToStitchStart','cut to stitch buffer','cut buffer'],daysStitchEndToExFactory:['daysStitchEndToExFactory','stitch to ex-factory buffer','ex-f buffer']};
+    document.getElementById('import-excel').addEventListener('click', () => document.getElementById('file-input').click());
+    document.getElementById('file-input').addEventListener('change', (event) => { const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = (e) => { try { if (dataAndCalculationsData.length === 1 && dataAndCalculationsData[0].styleNumber === 'STYLE-001') { dataAndCalculationsData = []; } const data = new Uint8Array(e.target.result), workbook = XLSX.read(data, {type:'array', cellDates:true}), sheetName = workbook.SheetNames[0]; const worksheet = workbook.Sheets[sheetName], importedJson = XLSX.utils.sheet_to_json(worksheet, {raw:false}); const reverseHeaderMap = {}; for (const k in headerMapping) headerMapping[k].forEach(h => { reverseHeaderMap[h.toLowerCase().trim()] = k; }); const newStyles = importedJson.map(row => { if (!row || !Object.keys(row).length) return null; const normalized = {}; for (const h in row) { const k = reverseHeaderMap[h.toLowerCase().trim()]; if (k) normalized[k] = row[h] instanceof Date ? formatDate(row[h]) : row[h]; } if (!normalized.styleNumber) return null; return {...defaultStyle, ...normalized}; }).filter(Boolean); newStyles.forEach(s => { const i = dataAndCalculationsData.findIndex(es => es && String(es.styleNumber).trim() === String(s.styleNumber).trim()); if (i > -1) Object.assign(dataAndCalculationsData[i], s); else dataAndCalculationsData.push(s); }); processChangesAndRender(); alert('Import successful!'); } catch (error) { alert(`Import failed: ${error.message}`); } finally { document.getElementById('file-input').value = ''; } }; reader.readAsArrayBuffer(file); });
+    document.getElementById('export-excel').addEventListener('click', () => { const ws = XLSX.utils.json_to_sheet(dataAndCalculationsData); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Production Plan"); XLSX.writeFile(wb, "GarmentProductionPlan.xlsx"); });
+    document.getElementById('filter-style').addEventListener('input', applySortAndFilterAndRender); document.getElementById('filter-line').addEventListener('change', applySortAndFilterAndRender); document.getElementById('filter-status').addEventListener('change', applySortAndFilterAndRender); document.getElementById('reset-filters').addEventListener('click', () => { document.getElementById('filter-style').value = ''; document.getElementById('filter-line').value = ''; document.getElementById('filter-status').value = ''; applySortAndFilterAndRender(); });
+    document.getElementById('data-table-head').addEventListener('click', (e) => { const header = e.target.closest('th.sortable'); if (!header) return; const newKey = header.dataset.sortKey; if (sortState.key === newKey) { sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc'; } else { sortState.key = newKey; sortState.direction = 'asc'; } applySortAndFilterAndRender(); });
+    document.getElementById('zoom-in-btn').addEventListener('click', () => { if (ganttDayWidth < 100) { ganttDayWidth += 10; renderGanttChart(); } });
+    document.getElementById('zoom-out-btn').addEventListener('click', () => { if (ganttDayWidth > 10) { ganttDayWidth -= 10; renderGanttChart(); } });
+
+    function initializeApp() { loadData(); updateFilterLineOptions(); processChangesAndRender(); }
+    initializeApp();
+});
+</script>
+
+</body>
+</html>
